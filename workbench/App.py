@@ -1,3 +1,4 @@
+"""@author lichunjiang: EasyMCP GUI with cooperative firmware ownership."""
 import os
 import sys
 import tkinter as tk
@@ -13,6 +14,7 @@ from Control_frame import Control_frame
 from I2Cscan_window import I2Cscan_window
 
 import EasyMCP2221
+from Firmware_cooperation import GuiCooperation, FirmwareBusy
 
 
 class App(tk.Tk):
@@ -83,17 +85,31 @@ class App(tk.Tk):
             self.call('wm', 'iconphoto', self._w, logo)
 
 
-        self.connect()
+        self.firmware = GuiCooperation(self)
+        self.protocol('WM_DELETE_WINDOW', self.quit_click)
+        self.waiting_label = ttk.Label(self, text='Waiting for hardware ownership...')
+        self.waiting_label.grid(row=0, column=0, padx=20, pady=20)
+        self.after(0, self.start_device)
 
+    def start_device(self):
+        """@author lichunjiang: Delay all device initialization while a firmware lease exists."""
+        if self.firmware.tick():
+            self.after(self.reading_period, self.start_device)
+            return
+        self.waiting_label.destroy()
+        self.connect()
         self.main_window()
         self.load_flash()
-        self.mcp.reset()
-
-        # Read/update main loop
+        self.firmware.refresh()
+        # Opening the viewer must not reset MCP or reload flash GPIO defaults.
         self.read_mcp_loop()
 
-        logger.debug("Starting APP")
-
+    def report_callback_exception(self, kind, value, traceback):
+        """@author lichunjiang: Ignore queued GUI clicks rejected during skill ownership."""
+        if isinstance(value, FirmwareBusy):
+            logger.info(str(value))
+            return
+        super().report_callback_exception(kind, value, traceback)
 
     def main_window(self):
         self.title("EasyMCP2221 Workbench - Electrónica y ciencia")
@@ -146,6 +162,9 @@ class App(tk.Tk):
 
 
     def read_mcp_loop(self, *args):
+        if self.firmware.tick():
+            self.after(self.reading_period, self.read_mcp_loop)
+            return
         if self.i2c_scanning:
             self.after(self.reading_period, self.read_mcp_loop)
             return
@@ -173,7 +192,7 @@ class App(tk.Tk):
 
     def connect(self):
         try:
-            self.mcp = EasyMCP2221.Device()
+            self.mcp = self.firmware.attach(EasyMCP2221.Device(read_timeout=1500))
         except Exception as e:
             logger.critical('Device not found: ' + str(e))
             showerror('Device not found', str(e))
@@ -181,6 +200,7 @@ class App(tk.Tk):
 
 
     def quit_click(self):
+        self.firmware.close()
         self.destroy()
 
 

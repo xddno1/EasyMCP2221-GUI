@@ -129,3 +129,19 @@ Command line to regenerate spec file:
       EasyMCP2221-workbench.pyw
 
 
+
+## Cooperative firmware access (Windows source mode)
+
+Workbench can remain open while a cooperating firmware client uses the MCP2221.
+The client imports `workbench/Firmware_cooperation.py`, acquires a `Lease` using
+the module's `DIRECTORY` and GUI process IDs, and releases it after closing its HID handle.
+
+- Workbench completes its current operation, closes HID, disables hardware controls,
+  and acknowledges the client's unique request token before the client proceeds.
+- After release it reopens HID and refreshes live SRAM/output state without resetting
+  the device or restoring flash defaults. GUI startup also waits for an active lease.
+- If the client exits unexpectedly, Workbench resumes automatically. Independent
+  applications that do not implement this handshake still must not share HID access.
+- Runtime files in `workbench/.firmware-control/` are ignored by Git.
+
+Run protocol regression tests on Windows with `python -m unittest discover -s tests -v`.
